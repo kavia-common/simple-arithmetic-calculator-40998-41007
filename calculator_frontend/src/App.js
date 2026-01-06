@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { supabase } from "./lib/supabaseClient";
+import { getOrCreateSessionId } from "./lib/session";
 
 /**
  * Ocean Professional theme tokens (lightly applied inline to keep the feature self-contained in App.js)
@@ -158,6 +160,35 @@ function App() {
     setOverwrite(false);
   }, [clearAll, hasError]);
 
+  /**
+   * Persist a successful computation into Supabase.
+   * This is intentionally "best effort": failures should not break calculator usage.
+   */
+  const insertCalculation = useCallback(async ({ a, b, operator: op, result }) => {
+    if (!supabase) return; // Supabase not configured; app still works.
+
+    try {
+      const sessionId = getOrCreateSessionId();
+      const { error } = await supabase.from("calculations").insert([
+        {
+          a,
+          b,
+          operator: op,
+          result,
+          session_id: sessionId,
+        },
+      ]);
+
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[supabase] Failed to insert calculation:", error);
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[supabase] Unexpected error inserting calculation:", e);
+    }
+  }, []);
+
   const safeCompute = useCallback((aStr, op, bStr) => {
     const a = Number(aStr);
     const b = Number(bStr);
@@ -201,11 +232,24 @@ function App() {
       // If there is already an operator and we have a previousValue, compute sequentially.
       // Example: 2 + 3 × 4 => (2+3)=5 then set operator to ×, waiting for next operand.
       if (previousValue != null && operator != null && !overwrite) {
-        const result = safeCompute(previousValue, operator, currentValue);
+        const lhs = previousValue;
+        const rhs = currentValue;
+
+        const result = safeCompute(lhs, operator, rhs);
         setCurrentValue(result.value);
         setPreviousValue(result.ok ? result.value : null);
         setOperator(nextOp);
         setOverwrite(true);
+
+        // Persist only successful computations.
+        if (result.ok) {
+          void insertCalculation({
+            a: Number(lhs),
+            b: Number(rhs),
+            operator,
+            result: Number(result.value),
+          });
+        }
         return;
       }
 
@@ -220,7 +264,7 @@ function App() {
       setOperator(nextOp);
       setOverwrite(true);
     },
-    [currentValue, hasError, operator, overwrite, previousValue, safeCompute]
+    [currentValue, hasError, operator, overwrite, previousValue, safeCompute, insertCalculation]
   );
 
   const evaluateEquals = useCallback(() => {
@@ -236,14 +280,25 @@ function App() {
 
     // If equals is pressed right after operator (overwrite=true), treat it as "previous op previous"
     // Example: "5 + =" -> 10. This matches common calculator behavior.
+    const lhs = previousValue;
     const rhs = overwrite ? previousValue : currentValue;
 
-    const result = safeCompute(previousValue, operator, rhs);
+    const result = safeCompute(lhs, operator, rhs);
     setCurrentValue(result.value);
     setPreviousValue(null);
     setOperator(null);
     setOverwrite(true);
-  }, [clearAll, currentValue, hasError, operator, overwrite, previousValue, safeCompute]);
+
+    // Persist only successful computations.
+    if (result.ok) {
+      void insertCalculation({
+        a: Number(lhs),
+        b: Number(rhs),
+        operator,
+        result: Number(result.value),
+      });
+    }
+  }, [clearAll, currentValue, hasError, operator, overwrite, previousValue, safeCompute, insertCalculation]);
 
   // Keyboard support: digits, operations, Enter, Backspace, Escape, decimal.
   useEffect(() => {
