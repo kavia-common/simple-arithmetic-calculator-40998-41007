@@ -53,6 +53,31 @@ Common components include:
 - Navigation (`.navbar`)
 - Typography (`.title`, `.subtitle`, `.description`)
 
+## Supabase logging (optional)
+
+This app can optionally log each completed calculation to a Supabase table named `calculations`.
+
+### Required env vars
+
+Set these in `.env` (or copy `.env.example` and fill them in):
+
+- `REACT_APP_SUPABASE_URL`
+- `REACT_APP_SUPABASE_KEY` (anon key)
+
+### Expected table schema
+
+If the `calculations` table does not exist yet, create it in Supabase with:
+
+- `id` uuid primary key default `uuid_generate_v4()`
+- `a` numeric
+- `b` numeric
+- `operator` text
+- `result` numeric
+- `created_at` timestamptz default `now()`
+- `session_id` text
+
+Note: This codebase does not run SQL migrations automatically.
+
 ## Learn More
 
 To learn React, check out the [React documentation](https://reactjs.org/).

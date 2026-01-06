@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { getOrCreateSessionId, insertCalculation } from "./lib/calculations";
 
 /**
  * Ocean Professional theme tokens (lightly applied inline to keep the feature self-contained in App.js)
@@ -201,11 +202,29 @@ function App() {
       // If there is already an operator and we have a previousValue, compute sequentially.
       // Example: 2 + 3 × 4 => (2+3)=5 then set operator to ×, waiting for next operand.
       if (previousValue != null && operator != null && !overwrite) {
-        const result = safeCompute(previousValue, operator, currentValue);
+        const aStr = previousValue;
+        const bStr = currentValue;
+        const op = operator;
+
+        const result = safeCompute(aStr, op, bStr);
+
         setCurrentValue(result.value);
         setPreviousValue(result.ok ? result.value : null);
         setOperator(nextOp);
         setOverwrite(true);
+
+        // Side-effect: log successful calculations to Supabase.
+        if (result.ok) {
+          const session_id = getOrCreateSessionId();
+          void insertCalculation({
+            a: Number(aStr),
+            b: Number(bStr),
+            operator: op,
+            result: Number(result.value),
+            session_id,
+          });
+        }
+
         return;
       }
 
@@ -238,11 +257,28 @@ function App() {
     // Example: "5 + =" -> 10. This matches common calculator behavior.
     const rhs = overwrite ? previousValue : currentValue;
 
-    const result = safeCompute(previousValue, operator, rhs);
+    const aStr = previousValue;
+    const bStr = rhs;
+    const op = operator;
+
+    const result = safeCompute(aStr, op, bStr);
+
     setCurrentValue(result.value);
     setPreviousValue(null);
     setOperator(null);
     setOverwrite(true);
+
+    // Side-effect: log successful calculations to Supabase.
+    if (result.ok) {
+      const session_id = getOrCreateSessionId();
+      void insertCalculation({
+        a: Number(aStr),
+        b: Number(bStr),
+        operator: op,
+        result: Number(result.value),
+        session_id,
+      });
+    }
   }, [clearAll, currentValue, hasError, operator, overwrite, previousValue, safeCompute]);
 
   // Keyboard support: digits, operations, Enter, Backspace, Escape, decimal.
