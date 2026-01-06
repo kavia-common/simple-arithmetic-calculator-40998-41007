@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
-import { supabase } from "./lib/supabaseClient";
-import { getOrCreateSessionId } from "./lib/session";
 
 /**
  * Ocean Professional theme tokens (lightly applied inline to keep the feature self-contained in App.js)
@@ -160,35 +158,6 @@ function App() {
     setOverwrite(false);
   }, [clearAll, hasError]);
 
-  /**
-   * Persist a successful computation into Supabase.
-   * This is intentionally "best effort": failures should not break calculator usage.
-   */
-  const insertCalculation = useCallback(async ({ a, b, operator: op, result }) => {
-    if (!supabase) return; // Supabase not configured; app still works.
-
-    try {
-      const sessionId = getOrCreateSessionId();
-      const { error } = await supabase.from("calculations").insert([
-        {
-          a,
-          b,
-          operator: op,
-          result,
-          session_id: sessionId,
-        },
-      ]);
-
-      if (error) {
-        // eslint-disable-next-line no-console
-        console.warn("[supabase] Failed to insert calculation:", error);
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn("[supabase] Unexpected error inserting calculation:", e);
-    }
-  }, []);
-
   const safeCompute = useCallback((aStr, op, bStr) => {
     const a = Number(aStr);
     const b = Number(bStr);
@@ -232,24 +201,11 @@ function App() {
       // If there is already an operator and we have a previousValue, compute sequentially.
       // Example: 2 + 3 × 4 => (2+3)=5 then set operator to ×, waiting for next operand.
       if (previousValue != null && operator != null && !overwrite) {
-        const lhs = previousValue;
-        const rhs = currentValue;
-
-        const result = safeCompute(lhs, operator, rhs);
+        const result = safeCompute(previousValue, operator, currentValue);
         setCurrentValue(result.value);
         setPreviousValue(result.ok ? result.value : null);
         setOperator(nextOp);
         setOverwrite(true);
-
-        // Persist only successful computations.
-        if (result.ok) {
-          void insertCalculation({
-            a: Number(lhs),
-            b: Number(rhs),
-            operator,
-            result: Number(result.value),
-          });
-        }
         return;
       }
 
@@ -264,7 +220,7 @@ function App() {
       setOperator(nextOp);
       setOverwrite(true);
     },
-    [currentValue, hasError, operator, overwrite, previousValue, safeCompute, insertCalculation]
+    [currentValue, hasError, operator, overwrite, previousValue, safeCompute]
   );
 
   const evaluateEquals = useCallback(() => {
@@ -288,17 +244,7 @@ function App() {
     setPreviousValue(null);
     setOperator(null);
     setOverwrite(true);
-
-    // Persist only successful computations.
-    if (result.ok) {
-      void insertCalculation({
-        a: Number(lhs),
-        b: Number(rhs),
-        operator,
-        result: Number(result.value),
-      });
-    }
-  }, [clearAll, currentValue, hasError, operator, overwrite, previousValue, safeCompute, insertCalculation]);
+  }, [clearAll, currentValue, hasError, operator, overwrite, previousValue, safeCompute]);
 
   // Keyboard support: digits, operations, Enter, Backspace, Escape, decimal.
   useEffect(() => {
@@ -468,7 +414,8 @@ function App() {
     fontSize: 18,
     fontWeight: 700,
     cursor: "pointer",
-    transition: "transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease",
+    transition:
+      "transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease",
     boxShadow: "0 10px 18px rgba(17, 24, 39, 0.06)",
     outline: "none",
   };
@@ -483,8 +430,12 @@ function App() {
     let style = { ...baseButtonStyle };
 
     if (btn.kind === "op") {
-      style.background = isActiveOp ? "rgba(37, 99, 235, 0.14)" : "rgba(37, 99, 235, 0.08)";
-      style.borderColor = isActiveOp ? "rgba(37, 99, 235, 0.35)" : "rgba(37, 99, 235, 0.20)";
+      style.background = isActiveOp
+        ? "rgba(37, 99, 235, 0.14)"
+        : "rgba(37, 99, 235, 0.08)";
+      style.borderColor = isActiveOp
+        ? "rgba(37, 99, 235, 0.35)"
+        : "rgba(37, 99, 235, 0.20)";
       style.color = THEME.primary;
     }
 
@@ -528,9 +479,7 @@ function App() {
       <main style={panelStyle} aria-label="Simple calculator">
         <div style={headerStyle}>
           <p style={titleStyle}>Calculator</p>
-          <p style={hintStyle}>
-            Keyboard: 0-9 · + - * / % · Enter · Backspace · Esc
-          </p>
+          <p style={hintStyle}>Keyboard: 0-9 · + - * / % · Enter · Backspace · Esc</p>
         </div>
 
         <section style={displayWrapStyle} aria-label="Display">
